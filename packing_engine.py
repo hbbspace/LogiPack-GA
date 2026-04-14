@@ -172,57 +172,35 @@ def pmx_crossover(parent1, parent2):
     size = len(parent1)
     p1 = parent1.copy()
     p2 = parent2.copy()
-
+    
     cut1 = random.randint(0, size-2)
     cut2 = random.randint(cut1+1, size-1)
-
-    child1 = [None] * size
-    child2 = [None] * size
-
-    child1[cut1:cut2] = p1[cut1:cut2]
-    child2[cut1:cut2] = p2[cut1:cut2]
-
-    mapping1 = {}
-    mapping2 = {}
+    
+    child = [None] * size
+    child[cut1:cut2] = p1[cut1:cut2]
+    
+    mapping = {}
     for i in range(cut1, cut2):
-        mapping1[p1[i][0]] = p2[i][0]
-        mapping2[p2[i][0]] = p1[i][0]
-
+        mapping[p1[i][0]] = p2[i][0]
+    
     for i in range(size):
         if i < cut1 or i >= cut2:
             gene = p2[i]
-            while gene[0] in [g[0] for g in child1 if g is not None]:
-                if gene[0] in mapping1:
-                    gene_id = mapping1[gene[0]]
+            while gene[0] in [g[0] for g in child if g is not None]:
+                if gene[0] in mapping:
+                    mapped_id = mapping[gene[0]]
                     for g in p2:
-                        if g[0] == gene_id:
+                        if g[0] == mapped_id:
                             gene = g
                             break
                 else:
                     for g in p1:
-                        if g[0] not in [cg[0] for cg in child1 if cg is not None]:
+                        if g[0] not in [cg[0] for cg in child if cg is not None]:
                             gene = g
                             break
-            child1[i] = gene
-
-    for i in range(size):
-        if i < cut1 or i >= cut2:
-            gene = p1[i]
-            while gene[0] in [g[0] for g in child2 if g is not None]:
-                if gene[0] in mapping2:
-                    gene_id = mapping2[gene[0]]
-                    for g in p1:
-                        if g[0] == gene_id:
-                            gene = g
-                            break
-                else:
-                    for g in p2:
-                        if g[0] not in [cg[0] for cg in child2 if cg is not None]:
-                            gene = g
-                            break
-            child2[i] = gene
-
-    return child1, child2
+            child[i] = gene
+    
+    return child
 
 def mutate(chromosome):
     mutated = chromosome.copy()
@@ -243,6 +221,7 @@ def mutate(chromosome):
 
 def run_genetic_algorithm(packages_data, container_data, params):
     random.seed(42)
+    np.random.seed(42)
     
     packages = [Package(p['id'], p['length'], p['width'], p['height'], p['weight']) for p in packages_data]
     container = Container(container_data['length'], container_data['width'], container_data['height'], container_data['max_weight'])
@@ -253,12 +232,14 @@ def run_genetic_algorithm(packages_data, container_data, params):
     crossover_rate = params.get('crossover_rate', 0.8)
     mutation_rate = params.get('mutation_rate', 0.2)
     
+    # Inisialisasi populasi
     population = [create_chromosome(packages) for _ in range(population_size)]
     
     best_solution = None
     best_fitness = -float('inf')
     
     for gen in range(generations):
+        # Evaluasi fitness
         fitness_scores = []
         solutions = []
         
@@ -267,25 +248,45 @@ def run_genetic_algorithm(packages_data, container_data, params):
             fitness_scores.append(result['fitness'])
             solutions.append(result)
         
+        # Update best solution
         gen_best_idx = np.argmax(fitness_scores)
         if fitness_scores[gen_best_idx] > best_fitness:
             best_fitness = fitness_scores[gen_best_idx]
             best_solution = solutions[gen_best_idx]
-            best_solution['chromosome'] = population[gen_best_idx]
+            best_solution['chromosome'] = population[gen_best_idx].copy()
         
         if gen < generations - 1:
-            new_population = []
-            while len(new_population) < population_size:
-                if random.random() < crossover_rate and len(new_population) <= population_size - 2:
-                    p1_idx = tournament_selection(population, fitness_scores)
-                    p2_idx = tournament_selection(population, fitness_scores)
-                    child1, child2 = pmx_crossover(population[p1_idx], population[p2_idx])
-                    new_population.extend([child1, child2])
-                else:
-                    p_idx = tournament_selection(population, fitness_scores)
-                    child = mutate(population[p_idx])
-                    new_population.append(child)
+            # =========== PERBAIKAN: Hitung alokasi offspring ===========
+            target_crossover_children = int(population_size * crossover_rate)
+            target_mutation_children = population_size - target_crossover_children
+
+            target_crossover_ops = target_crossover_children  # 1 child per operasi
+            target_mutation_ops = target_mutation_children
             
-            population = new_population[:population_size]
+            offspring = []
+            
+            # Produksi CROSSOVER
+            for _ in range(target_crossover_ops):
+                p1_idx = tournament_selection(population, fitness_scores)
+                p2_idx = tournament_selection(population, fitness_scores)
+                while p2_idx == p1_idx:
+                    p2_idx = tournament_selection(population, fitness_scores)
+                child = pmx_crossover(population[p1_idx], population[p2_idx])
+                offspring.append(child)
+            
+            # Produksi MUTASI
+            for _ in range(target_mutation_ops):
+                p_idx = tournament_selection(population, fitness_scores)
+                child = mutate(population[p_idx])
+                offspring.append(child)
+            
+            # =========== GABUNGKAN POPULASI LAMA + OFFSPRING ===========
+            combined_population = population + offspring
+            combined_fitness = fitness_scores + [bottom_left_fill_with_fitness(chrom, container, packages_dict)['fitness'] for chrom in offspring]
+            
+            # =========== SELEKSI N TERBAIK (DENGAN ELITISM) ===========
+            sorted_indices = np.argsort(combined_fitness)[::-1]
+            best_indices = sorted_indices[:population_size]
+            population = [combined_population[i] for i in best_indices]
     
     return best_solution
