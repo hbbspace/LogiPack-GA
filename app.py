@@ -14,20 +14,17 @@ app = FastAPI(title="3D Bin Packing API", description="API for 3D Bin Packing us
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000", "http://localhost:8001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Tentukan path ke folder public Laravel
-# Asumsi struktur: 
-#   parent_folder/
-#   ├── logipack_vis/     (Laravel project)
-#   └── logipack_ga/      (Python API project)
-BASE_DIR = Path(__file__).resolve().parent  # logipack_ga/
-PROJECT_ROOT = BASE_DIR.parent              # folder parent (tempat kedua proyek berada)
+BASE_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BASE_DIR.parent
 LARAVEL_PUBLIC_VISUALIZATIONS = PROJECT_ROOT / "LogiPack-Viz" / "public" / "visualizations"
+
 
 class PackageInput(BaseModel):
     id: str
@@ -36,11 +33,13 @@ class PackageInput(BaseModel):
     height: float
     weight: float
 
+
 class ContainerInput(BaseModel):
     length: float
     width: float
     height: float
     max_weight: float
+
 
 class GAParams(BaseModel):
     population_size: int = 50
@@ -48,10 +47,12 @@ class GAParams(BaseModel):
     crossover_rate: float = 0.8
     mutation_rate: float = 0.2
 
+
 class PackingRequest(BaseModel):
     container: ContainerInput
     packages: List[PackageInput]
     ga_params: Optional[GAParams] = None
+
 
 class PackingResponse(BaseModel):
     success: bool
@@ -67,22 +68,15 @@ class PackingResponse(BaseModel):
     unplaced_packages: List[str]
     visualization_html: Optional[str] = None
     message: Optional[str] = None
+    # === TAMBAHAN BARU ===
+    chromosome: Optional[List] = None
+    execution_time_seconds: Optional[float] = None
+    history: Optional[List[Dict]] = None
+
 
 def generate_visualization(positions, container_dims, filename):
-    """
-    Menghasilkan visualisasi 3D dan menyimpannya ke folder public Laravel
-    
-    Args:
-        positions: List posisi paket
-        container_dims: Tuple (panjang, lebar, tinggi) container
-        filename: Nama file tanpa ekstensi
-    
-    Returns:
-        str: Path relatif yang bisa diakses dari browser via Laravel
-    """
     fig = go.Figure()
     
-    # Gambar container (wireframe)
     container_vertices = [
         [0, 0, 0], [container_dims[0], 0, 0],
         [container_dims[0], container_dims[1], 0], [0, container_dims[1], 0],
@@ -102,7 +96,6 @@ def generate_visualization(positions, container_dims, filename):
             showlegend=False
         ))
     
-    # Warna untuk paket (mengikuti warna brand Pos Indonesia)
     colors = ['#FF0000', '#0066B3', '#00AA00', '#FF6600', '#9900CC', '#FFCC00']
     
     for i, pos in enumerate(positions):
@@ -138,13 +131,11 @@ def generate_visualization(positions, container_dims, filename):
         legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01)
     )
     
-    # Buat folder tujuan jika belum ada
     try:
         LARAVEL_PUBLIC_VISUALIZATIONS.mkdir(parents=True, exist_ok=True)
         print(f"📁 Folder visualisasi: {LARAVEL_PUBLIC_VISUALIZATIONS}")
     except Exception as e:
         print(f"⚠️ Gagal membuat folder: {e}")
-        # Fallback: simpan di folder lokal visualizations
         local_viz_path = Path("visualizations")
         local_viz_path.mkdir(exist_ok=True)
         html_path = local_viz_path / f"{filename}.html"
@@ -152,7 +143,6 @@ def generate_visualization(positions, container_dims, filename):
         print(f"⚠️ Fallback: Visualisasi disimpan di {html_path}")
         return f"/visualizations/{filename}.html"
     
-    # Simpan file HTML di folder public Laravel
     html_path = LARAVEL_PUBLIC_VISUALIZATIONS / f"{filename}.html"
     
     try:
@@ -161,7 +151,6 @@ def generate_visualization(positions, container_dims, filename):
         print(f"🌐 URL akses: /visualizations/{filename}.html")
     except Exception as e:
         print(f"❌ Gagal menyimpan visualisasi: {e}")
-        # Fallback: simpan di folder lokal
         local_viz_path = Path("visualizations")
         local_viz_path.mkdir(exist_ok=True)
         html_path = local_viz_path / f"{filename}.html"
@@ -169,8 +158,8 @@ def generate_visualization(positions, container_dims, filename):
         print(f"⚠️ Fallback: Visualisasi disimpan di {html_path}")
         return f"/visualizations/{filename}.html"
     
-    # Kembalikan path relatif untuk diakses dari browser
     return f"/visualizations/{filename}.html"
+
 
 @app.post("/api/pack", response_model=PackingResponse)
 async def pack_items(request: PackingRequest):
@@ -178,26 +167,38 @@ async def pack_items(request: PackingRequest):
         if not request.packages:
             raise HTTPException(status_code=400, detail="No packages provided")
         
-        # Gunakan GA params default jika tidak disediakan
         ga_params = request.ga_params if request.ga_params else GAParams()
         
-        # Jalankan algoritma genetika
+        print(f"📦 Processing {len(request.packages)} packages with GA params:")
+        print(f"   Population: {ga_params.population_size}, Generations: {ga_params.generations}")
+        
         result = run_genetic_algorithm(
             packages_data=[p.model_dump() for p in request.packages],
             container_data=request.container.model_dump(),
             params=ga_params.model_dump()
         )
         
-        # Pisahkan paket yang terpasang dan tidak terpasang
         placed_packages = [p for p in result['positions'] if p.get('placed', False)]
         unplaced_packages = [p['id'] for p in result['positions'] if not p.get('placed', False)]
         
-        # Generate visualisasi
         viz_id = str(uuid.uuid4())[:8]
         container_dims = (request.container.length, request.container.width, request.container.height)
         viz_path = generate_visualization(result['positions'], container_dims, f"packing_{viz_id}")
         
-        # Siapkan response
+        # === TAMBAHAN: Ambil chromosome dan history dari result ===
+        chromosome = result.get('chromosome', [])
+        execution_time = result.get('execution_time_seconds', 0)
+        history = result.get('history', [])
+        
+        # Konversi chromosome ke format yang lebih mudah dibaca
+        # Format asli: [("P001", 1), ("P002", 3), ...]
+        formatted_chromosome = []
+        for item in chromosome:
+            if isinstance(item, tuple) and len(item) == 2:
+                formatted_chromosome.append([item[0], item[1]])
+            elif isinstance(item, list) and len(item) == 2:
+                formatted_chromosome.append(item)
+        
         response_data = {
             "success": True,
             "fitness": result['fitness'],
@@ -211,12 +212,18 @@ async def pack_items(request: PackingRequest):
             "placed_packages": placed_packages,
             "unplaced_packages": unplaced_packages,
             "visualization_html": viz_path,
-            "message": f"Successfully packed {result['num_placed']} out of {len(request.packages)} packages"
+            "message": f"Successfully packed {result['num_placed']} out of {len(request.packages)} packages",
+            # === TAMBAHAN BARU ===
+            "chromosome": formatted_chromosome,
+            "execution_time_seconds": execution_time,
+            "history": history
         }
         
         print(f"📊 Packing Result: {response_data['num_placed']}/{response_data['total_packages']} packages placed")
         print(f"📈 Volume Utilization: {response_data['volume_utilization']:.2f}%")
         print(f"🎯 Fitness Score: {response_data['fitness']:.2f}")
+        print(f"⏱️ Execution Time: {execution_time:.2f} seconds")
+        print(f"📜 History records: {len(history)} generations")
         
         return PackingResponse(**response_data)
     
@@ -226,6 +233,7 @@ async def pack_items(request: PackingRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/api/health")
 async def health_check():
     return {
@@ -233,6 +241,7 @@ async def health_check():
         "message": "3D Bin Packing API is running",
         "visualization_path": str(LARAVEL_PUBLIC_VISUALIZATIONS)
     }
+
 
 if __name__ == "__main__":
     print("🚀 Starting 3D Bin Packing API...")
