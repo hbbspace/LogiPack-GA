@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 import uvicorn
 from packing_engine import run_genetic_algorithm
 import plotly.graph_objects as go
+import plotly.colors as pc
 import os
 import uuid
 import json
@@ -92,19 +93,19 @@ def generate_visualization(positions, container_dims, filename):
             y=[container_vertices[line[0]][1], container_vertices[line[1]][1]],
             z=[container_vertices[line[0]][2], container_vertices[line[1]][2]],
             mode='lines',
-            line=dict(color='#FF0000', width=3),
+            line=dict(color='gray', width=3),
             showlegend=False
         ))
     
-    colors = ['#FF0000', '#0066B3', '#00AA00', '#FF6600', '#9900CC', '#FFCC00']
+    colors = pc.qualitative.Plotly + pc.qualitative.Dark24 + pc.qualitative.Light24
+    placed_positions = [p for p in positions if p.get('placed', False)]
+    valid_positions = [p for p in placed_positions if p['x'] >= 0]
     
-    for i, pos in enumerate(positions):
+    for i, pos in enumerate(valid_positions):
         if pos.get('placed', False):
             x, y, z = pos['x'], pos['y'], pos['z']
             dx, dy, dz = pos['dx'], pos['dy'], pos['dz']
-            
-            color_idx = i % len(colors)
-            color = colors[color_idx]
+            color = colors[i % len(colors)]
             
             fig.add_trace(go.Mesh3d(
                 x=[x, x+dx, x+dx, x, x, x+dx, x+dx, x],
@@ -115,7 +116,7 @@ def generate_visualization(positions, container_dims, filename):
                 k=[2,3,5,7,6,7],
                 color=color,
                 opacity=0.7,
-                name=f"{pos['id']} ({pos['dx']}x{pos['dy']}x{pos['dz']})"
+                name=f"{pos['id']}"
             ))
     
     fig.update_layout(
@@ -133,7 +134,7 @@ def generate_visualization(positions, container_dims, filename):
     
     try:
         LARAVEL_PUBLIC_VISUALIZATIONS.mkdir(parents=True, exist_ok=True)
-        print(f"📁 Folder visualisasi: {LARAVEL_PUBLIC_VISUALIZATIONS}")
+        # print(f"📁 Folder visualisasi: {LARAVEL_PUBLIC_VISUALIZATIONS}")
     except Exception as e:
         print(f"⚠️ Gagal membuat folder: {e}")
         local_viz_path = Path("visualizations")
@@ -148,7 +149,7 @@ def generate_visualization(positions, container_dims, filename):
     try:
         fig.write_html(str(html_path))
         print(f"✅ Visualisasi disimpan di: {html_path}")
-        print(f"🌐 URL akses: /visualizations/{filename}.html")
+        # print(f"🌐 URL akses: /visualizations/{filename}.html")
     except Exception as e:
         print(f"❌ Gagal menyimpan visualisasi: {e}")
         local_viz_path = Path("visualizations")
