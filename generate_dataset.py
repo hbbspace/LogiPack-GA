@@ -227,9 +227,9 @@ class SackOnlyDatasetGenerator:
         Volume besar → berat cenderung lebih besar
         """
         weight_ranges = {
-            'kecil': (7, 17),
-            'sedang': (20, 40),
-            'besar': (30, 60)
+            'kecil': (5, 15),
+            'sedang': (10, 25),
+            'besar': (20, 35)
         }
         
         min_w, max_w = weight_ranges[sack_type]
@@ -292,10 +292,10 @@ class SackOnlyDatasetGenerator:
         weight = self.calculate_weight(sack_type, actual_volume_cm3)
         
         # Step 5: Buat ID dan return
-        counter[sack_type] += 1
+        counter['global'] = counter.get('global', 0) + 1
         
         sack_data = {
-            'id': f'SACK_{sack_type.upper()}_{counter[sack_type]:04d}',
+            'id': f'P{counter["global"]:03d}',
             'type': sack_type,
             'variation_percent': int(variation * 100),
             'length_cm': round(p, 1),
@@ -328,7 +328,7 @@ class SackOnlyDatasetGenerator:
             stats: dictionary (statistik pengiriman)
         """
         items = []
-        counter = {'besar': 0, 'sedang': 0, 'kecil': 0}
+        counter = {'global': 0}
         
         # Distribusi jenis karung (probabilitas)
         sack_types = ['besar', 'sedang', 'kecil']
