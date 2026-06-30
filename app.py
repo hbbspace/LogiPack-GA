@@ -101,6 +101,8 @@ def generate_visualization(positions, container_dims, filename):
     colors = px.colors.qualitative.Alphabet + px.colors.qualitative.Dark24
     placed_positions = [p for p in positions if p.get('placed', False)]
     valid_positions = [p for p in placed_positions if p['x'] >= 0]
+
+    package_names = []
     
     for i, pos in enumerate(valid_positions):
         x, y, z = pos['x'], pos['y'], pos['z']
@@ -108,7 +110,8 @@ def generate_visualization(positions, container_dims, filename):
         orientation = pos.get('orientation', pos.get('rot_index', 0))
         tracking_number = pos.get('tracking_number', pos.get('id', f'Paket_{i+1}'))
         color = colors[i % len(colors)]
-        group_name = f"Paket {tracking_number}"
+        group_name = f"{tracking_number}"
+        package_names.append(group_name)
         
         fig.add_trace(go.Mesh3d(
             x=[x, x+dx, x+dx, x, x, x+dx, x+dx, x],
@@ -124,8 +127,9 @@ def generate_visualization(positions, container_dims, filename):
             hoverinfo="text",
             color=color,
             flatshading=True,
-            name=f"{tracking_number}",
-            showlegend=False,
+            name=group_name,
+            showlegend=True,
+            legendgroup=group_name,
         ))
         
         # --- OUTLINE HITAM TEBAL---
@@ -194,7 +198,7 @@ def generate_visualization(positions, container_dims, filename):
             font=dict(size=14)
         ),
         legend=dict(
-            title="<b>Daftar Paket Terangkut:</b>",
+            title="<b>Paket Termuat:</b>",
             yanchor="top",
             y=0.95,
             xanchor="left",
